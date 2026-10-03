@@ -11,6 +11,7 @@ on this Open3D build:
 So `show()` defaults to opening a real window, and `save=` is best-effort: it
 works from a desktop session and will hang without one. Nothing in the library
 or the test suite depends on it.
+
 """
 
 from __future__ import annotations
