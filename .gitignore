@@ -216,3 +216,11 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# mesh-vis frame snapshots (about 2.3 MB each)
+captures/
+outputs/
+
+# Local sensor inputs and machine-specific publisher configuration
+data/*.pcap
+data/*-local.yaml

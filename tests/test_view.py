@@ -1,63 +1,71 @@
-"""Tests for the rendering helper.
+"""Viewer controls are tested without opening a desktop window."""
 
-The render tests are opt-in: offscreen `create_window(visible=False)` blocks
-forever without an attached window server, which hangs the whole suite. Run
-them from a normal desktop session with:
-
-    CLOUDLAB_RENDER_TESTS=1 python3 -m unittest discover -s tests -t .
-"""
-
-import os
-import pathlib
-import tempfile
+from collections import deque
+from types import SimpleNamespace
 import unittest
 
 import numpy as np
-import open3d as o3d
 
-from cloudlab import surface, view
-
-RENDER = unittest.skipUnless(
-    os.environ.get("CLOUDLAB_RENDER_TESTS"),
-    "needs a window server; set CLOUDLAB_RENDER_TESTS=1",
-)
+from mesh_vis import view
 
 
-class TestArgumentHandling(unittest.TestCase):
-    """Runs everywhere -- no window is opened."""
+class TestClusterColors(unittest.TestCase):
+    """Runs everywhere -- pure colour mapping, no window."""
 
-    def test_rejects_unknown_backend(self):
-        with self.assertRaises(ValueError):
-            view.show([], "t", save="x.png", backend="raytracer")
+    def test_unassigned_is_gray_and_clusters_are_not(self):
+        colors = view.cluster_colors(np.array([-1, 5, -1, 7], dtype=np.int32))
+        np.testing.assert_allclose(colors[[0, 2]], [view.UNASSIGNED_GRAY] * 2)
+        for c in colors[[1, 3]]:
+            self.assertGreater(float(c.max() - c.min()), 0.5)  # saturated, not gray
 
-    def test_save_path_parent_is_created_before_rendering(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            out = pathlib.Path(tmp) / "nested" / "deep" / "shot.png"
-            view.prepare_save_path(out)
-            self.assertTrue(out.parent.is_dir())
+    def test_same_id_same_colour_and_neighbouring_ids_differ(self):
+        ids = np.arange(1, 301, dtype=np.int32)
+        colors = view.cluster_colors(np.concatenate([ids, ids]))
+        np.testing.assert_array_equal(colors[:300], colors[300:])
+        step = np.linalg.norm(np.diff(colors[:300], axis=0), axis=1)
+        self.assertGreater(float(step.min()), 0.3)
+
+    def test_shape_range_and_edge_cases(self):
+        colors = view.cluster_colors(np.array([0, 1, 2**24 + 1, 2**31 - 1], dtype=np.int32))
+        self.assertEqual(colors.shape, (4, 3))
+        self.assertTrue(np.all((colors >= 0) & (colors <= 1)))
+        self.assertEqual(view.cluster_colors(np.zeros(0, dtype=np.int32)).shape, (0, 3))
 
 
-@RENDER
-class TestSave(unittest.TestCase):
+class TestSaveSelection(unittest.TestCase):
     def setUp(self):
-        self.mesh = surface.make_shape("sphere", radius=1.0, resolution=20)
+        self.viewer = view.LiveCloudViewer.__new__(view.LiveCloudViewer)
+        self.viewer._save_requests = deque()
+        self.viewer.frame = SimpleNamespace(seq=1)
+        self.viewer.paused = False
 
-    def test_save_writes_a_readable_png(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            out = pathlib.Path(tmp) / "shot.png"
-            view.show([self.mesh], "test", save=out, width=320, height=240)
-            self.assertEqual(out.read_bytes()[:8], b"\x89PNG\r\n\x1a\n")
-            img = o3d.io.read_image(str(out))
-            self.assertEqual(tuple(np.asarray(img).shape[:2]), (240, 320))
+    def test_save_retains_selected_frame_when_live_frame_advances(self):
+        selected = self.viewer.frame
+        self.viewer._on_s(None, view._GLFW_PRESS, 0)
+        self.viewer.frame = SimpleNamespace(seq=2)
+        self.assertEqual(self.viewer.take_save_requests(), [selected])
+        self.assertEqual(self.viewer.take_save_requests(), [])
 
-    def test_save_renders_the_geometry_not_a_blank_frame(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            empty, full = pathlib.Path(tmp) / "e.png", pathlib.Path(tmp) / "f.png"
-            view.show([], "empty", save=empty, width=320, height=240)
-            view.show([self.mesh], "full", save=full, width=320, height=240)
-            a = np.asarray(o3d.io.read_image(str(empty))).astype(float)
-            b = np.asarray(o3d.io.read_image(str(full))).astype(float)
-            self.assertGreater(float(np.abs(a - b).mean()), 1.0)
+    def test_repeated_presses_preserve_each_selection_and_ignore_key_release(self):
+        first = self.viewer.frame
+        self.viewer._on_s(None, view._GLFW_PRESS, 0)
+        second = self.viewer.frame = SimpleNamespace(seq=2)
+        self.viewer._on_s(None, 0, 0)
+        self.viewer._on_s(None, view._GLFW_PRESS, 0)
+        self.assertEqual(self.viewer.take_save_requests(), [first, second])
+
+    def test_save_before_first_frame_is_explicit(self):
+        self.viewer.frame = None
+        self.viewer._on_s(None, view._GLFW_PRESS, 0)
+        self.assertEqual(self.viewer.take_save_requests(), [None])
+
+    def test_pause_toggles_on_press_only(self):
+        self.viewer._on_space(None, view._GLFW_PRESS, 0)
+        self.assertTrue(self.viewer.paused)
+        self.viewer._on_space(None, 0, 0)
+        self.assertTrue(self.viewer.paused)
+        self.viewer._on_space(None, view._GLFW_PRESS, 0)
+        self.assertFalse(self.viewer.paused)
 
 
 if __name__ == "__main__":

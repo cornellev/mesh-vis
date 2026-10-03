@@ -1,3 +1,5 @@
 numpy
 pandas
 open3d
+eclipse-zenoh==1.10.1   # matches the rslidar publisher (Rust zenoh 1.10)
+# Local environment: Python 3.14.2, numpy 2.4.1, open3d 0.19.0+1a9eb99
