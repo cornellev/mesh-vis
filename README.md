@@ -29,12 +29,13 @@ PyPI dependency. Viewing needs a desktop session; text inspection does not.
 
 ## Capture
 
-The local PCAP and machine-specific producer config live under `data/` and are
-gitignored. Start the already-built publisher without invoking Cargo:
+Recordings are not in this repo. Put a PCAP on your machine, point `pcap_path` in `data/rslidar-local.yaml` at it, and start the publisher:
 
 ```bash
 "../virtual-rgbd-sensor/target/release/rslidar_viz" "data/rslidar-local.yaml"
 ```
+
+A live lidar can take the place of the PCAP. Until one of those is publishing `rslidar/points/segmented`, capture has nothing to show.
 
 This leaves the neighboring source checkout untouched. To rebuild it when its
 source or dependencies actually change, use Cargo in that repository; normal
