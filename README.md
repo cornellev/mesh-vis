@@ -27,19 +27,35 @@ uses Python 3.14.2, NumPy 2.4.1, Open3D 0.19.0+1a9eb99, and eclipse-zenoh 1.10.1
 The Open3D development build is recorded for reference, not pinned as a portable
 PyPI dependency. Viewing needs a desktop session; text inspection does not.
 
+## How a sweep gets here
+
+mesh-vis receives already segmented frames. It does not read the PCAP and it does not segment points.
+
+1. Start with a PCAP file on your machine. Recordings are not in this repo.
+2. Segmentation is done by `rslidar_viz`, a compiled program from the neighboring `virtual-rgbd-sensor` repository. You point it at the PCAP. It decodes the RoboSense packets into points, runs the two-layer graph clustering in that repository, and publishes each frame.
+3. `python3 -m mesh_vis capture` subscribes over Zenoh to `rslidar/points/segmented` and displays those frames.
+4. Press **S** to write the frame on screen to `captures/*.npz`. That file is the segmented cloud (`x, y, z, intensity, cluster_id`) used from here. `inspect` reopens it with this repo alone.
+
+A live lidar can take the place of the PCAP. Until `rslidar_viz` is publishing, capture has nothing to show.
+
+## What a fresh clone still needs
+
+This repository plus a PCAP is not enough to produce a snapshot.
+
+- This repo, with the dependencies in `requirements.txt` installed. Viewing needs a desktop session.
+- The PCAP on your machine.
+- `data/rslidar-local.yaml` with `pcap_path` set to that file. When `pcap_path` is set, `rslidar_viz` replays the file. The yaml and the PCAP are gitignored, so a fresh clone has neither. See [data/README.md](data/README.md).
+- `virtual-rgbd-sensor` checked out beside this repo and already built, so `../virtual-rgbd-sensor/target/release/rslidar_viz` exists. mesh-vis does not contain that program.  TO BE LOOKED AT AND FIXED
+
+Someone who already has a `captures/*.npz` file can inspect it without the PCAP or `rslidar_viz`.
+
 ## Capture
 
-Recordings are not in this repo. Put a PCAP on your machine, point `pcap_path` in `data/rslidar-local.yaml` at it, and start the publisher:
+From this repository's root, start the publisher, then the subscriber:
 
 ```bash
 "../virtual-rgbd-sensor/target/release/rslidar_viz" "data/rslidar-local.yaml"
 ```
-
-A live lidar can take the place of the PCAP. Until one of those is publishing `rslidar/points/segmented`, capture has nothing to show.
-
-This leaves the neighboring source checkout untouched. To rebuild it when its
-source or dependencies actually change, use Cargo in that repository; normal
-capture sessions can keep launching the existing binary directly. Then:
 
 ```bash
 python3 -m mesh_vis capture
