@@ -47,9 +47,10 @@ class LiveCloudViewer:
     decides where the frame goes -- so this class needs nothing from Zenoh or
     the snapshot format.
 
-    The camera is fitted once, to the first frame with any finite points.
-    After that the cloud is updated in place, so the view stays where you put
-    it while frames stream in.
+    The camera is fitted once, to the first frame with any finite points:
+    centred on the sensor and showing `view_range` metres above and below it, or
+    the whole frame when `view_range` is 0. After that the cloud is updated in
+    place, so the view stays where you put it while frames stream in.
     """
 
     def __init__(
@@ -60,11 +61,13 @@ class LiveCloudViewer:
         point_size: float = 2.0,
         background=(0.05, 0.05, 0.08),
         axes_size: float = 1.0,
+        view_range: float = 0.0,
     ):
         self.paused = False
         self.frame = None          # the CloudFrame currently on screen
         self._save_requests = deque()
         self._fitted = False
+        self._view_range = view_range
 
         self._vis = o3d.visualization.VisualizerWithKeyCallback()
         if not self._vis.create_window(window_name=title, width=width, height=height):
@@ -87,8 +90,19 @@ class LiveCloudViewer:
             self._vis.update_geometry(self._pcd)
         elif finite.any():
             self._vis.add_geometry(self._pcd, reset_bounding_box=True)
+            if self._view_range > 0:
+                self._zoom_to_sensor(frame.sensor_origin)
             self._fitted = True
         self.frame = frame
+
+    def _zoom_to_sensor(self, origin) -> None:
+        # Open3D's visible half-height is zoom * the scene's largest
+        # bounding-box extent; the axes at the origin are part of the scene.
+        pts = np.vstack([np.asarray(self._pcd.points), np.zeros((1, 3))])
+        extent = float((pts.max(axis=0) - pts.min(axis=0)).max())
+        ctr = self._vis.get_view_control()
+        ctr.set_lookat(np.asarray(origin, dtype=float))
+        ctr.set_zoom(self._view_range / extent)
 
     def step(self) -> bool:
         """Handle window events and redraw once. False once the window closes."""

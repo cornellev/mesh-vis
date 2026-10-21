@@ -19,7 +19,7 @@ def run_live(args) -> None:
     client.start()
     viewer = None
     try:
-        viewer = view.LiveCloudViewer(title=f"live: {args.key}")
+        viewer = view.LiveCloudViewer(title=f"live: {args.key}", view_range=args.view_range)
         print("Space pause/resume | S save selected frame | Esc/Q quit", flush=True)
         started = time.monotonic()
         hinted = False
@@ -77,7 +77,8 @@ def run_offline(args) -> None:
 
     from mesh_vis import view
 
-    viewer = view.LiveCloudViewer(title=f"snapshot: {pathlib.Path(args.path).name}")
+    viewer = view.LiveCloudViewer(title=f"snapshot: {pathlib.Path(args.path).name}",
+                                  view_range=args.view_range)
     try:
         viewer.show(snapshot)
         while viewer.step():
@@ -91,6 +92,13 @@ def run_offline(args) -> None:
 def nonnegative_int(value: str) -> int:
     number = int(value)
     if number < 0:
+        raise argparse.ArgumentTypeError("must be zero or greater")
+    return number
+
+
+def nonnegative_float(value: str) -> float:
+    number = float(value)
+    if not number >= 0:
         raise argparse.ArgumentTypeError("must be zero or greater")
     return number
 
@@ -112,6 +120,8 @@ def build_parser() -> argparse.ArgumentParser:
         command.add_argument("--expected-records", "--full-records", dest="expected_records",
                              type=nonnegative_int, default=frame.DEFAULT_EXPECTED_RECORDS,
                              help="optional count diagnostic (default: 115200); 0 disables it, not a completeness check")
+        command.add_argument("--view-range", type=nonnegative_float, default=8.0,
+                             help="initial view: metres shown above and below the sensor (default: 8); 0 fits the whole frame")
     return parser
 
 

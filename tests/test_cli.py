@@ -28,7 +28,8 @@ class TestCapture(unittest.TestCase):
         client.lidar.rejected = 0
         client.lidar.frame_count = 2
         with tempfile.TemporaryDirectory() as directory:
-            args = SimpleNamespace(key="test", out=directory, expected_records=0, dense_points="unknown")
+            args = SimpleNamespace(key="test", out=directory, expected_records=0, dense_points="unknown",
+                                   view_range=0.0)
             with patch.object(zenoh_source, "ZenohClient", return_value=client), \
                  patch.object(view, "LiveCloudViewer", return_value=viewer), \
                  patch.object(cli.time, "sleep"), contextlib.redirect_stdout(io.StringIO()):
@@ -67,6 +68,13 @@ class TestCommands(unittest.TestCase):
     def test_negative_expected_count_is_rejected(self):
         with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
             cli.build_parser().parse_args(["capture", "--expected-records", "-1"])
+
+    def test_view_range_defaults_to_eight_metres_and_rejects_negative(self):
+        for command in (["capture"], ["inspect", "x.npz"]):
+            self.assertEqual(cli.build_parser().parse_args(command).view_range, 8.0)
+            self.assertEqual(cli.build_parser().parse_args([*command, "--view-range", "0"]).view_range, 0.0)
+            with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+                cli.build_parser().parse_args([*command, "--view-range", "-1"])
 
     def test_inspect_without_window_or_zenoh(self):
         with tempfile.TemporaryDirectory() as directory:

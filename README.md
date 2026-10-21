@@ -87,6 +87,8 @@ python3 -m mesh_vis inspect captures/YOUR_SAVED_FILE.npz --no-show
 Inspection does not open a Zenoh session. It reports the saved timestamp, sequence,
 point/cluster counts, and configured assumptions. `--no-show` prints these without
 creating a window. Both earlier version-1 and new version-2 snapshots are readable.
+The window opens centred on the sensor, showing 8 m above and below it; change this
+with `--view-range M`, or use `--view-range 0` to fit the whole frame.
 
 ## Sensor assumptions and count diagnostics
 
