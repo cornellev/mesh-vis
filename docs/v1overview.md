@@ -9,8 +9,9 @@ continuous meshing, cross-frame tracking, and accumulated maps are later work.
 
 ## Current implementation
 
-Step 1 is implemented in `mesh_vis/`; step 2 remains planned. Use
-`python3 -m mesh_vis capture` and `python3 -m mesh_vis inspect FILE.npz`.
+Step 1 is implemented in `mesh_vis/`. Step 2 is implemented except the
+measurements and saving in 2.4. Use `python3 -m mesh_vis capture`,
+`python3 -m mesh_vis inspect FILE.npz`, and `python3 -m mesh_vis mesh FILE.npz --cluster ID`.
 See the [README](../README.md) for commands and desktop acceptance checks.
 The earlier sandbox is preserved under `experiments/legacy/`.
 
@@ -94,72 +95,33 @@ the existing decoder/integration checks and add snapshot round-trip coverage.
 
 ## Step 2 — Reconstruct and inspect a saved cluster
 
-### 2.1 Select and prepare
+1. Load one saved sweep. Each point has x, y, z, intensity and a cluster id from the segmenter.
+2. Keep only the chosen cluster's points, and drop points with missing (NaN) coordinates.
+3. Remove points that are exact copies of another point. Our frames have none, but some lidar settings produce them.
+4. Measure the spacing s: for every point, find the distance to its nearest neighbour, and take the median. All later sizes are multiples of s, so the same settings work for near and far objects and for different lidars.
+5. Voxel downsample with cubes of 3 × s. Each occupied cube is replaced by the average of its points. This thins the points along each beam but leaves the beams separate. Then measure the spacing again on the result, calling it s′.
+6. Estimate normals. For each point, take its neighbours within 6 × s′ (at most 50) and fit a plane to them; the normal is perpendicular to that plane. Then flip each normal so it points toward the sensor. The radius is 6 × s′ because smaller radii often reach only points on the same beam, which lie on a line, and a plane through a line can point any direction.
+7. Ball pivoting with balls of radius 1.5, 3 and 6 × s′. A ball resting on three points makes a triangle, then rolls over each edge onto the next point to make the next triangle. Small balls run first and keep detail; larger balls then fill the gaps the small ones fell through. Every corner of every triangle is one of the downsampled points.
+8. Remove duplicate triangles, triangles with zero area, and vertices no triangle uses.
+9. Remove triangles with any edge longer than 6 × s′. These are usually bridges across gaps with no real surface.
+10. Find the separate connected pieces of the mesh, and remove pieces with fewer than 10 triangles.
+11. Smooth the mesh with 10 passes of Taubin smoothing. Each pass moves every vertex toward the average of its neighbours, then pushes it back out slightly so the mesh doesn't shrink. This removes the crinkling caused by range noise.
+12. Compute vertex normals so the mesh shades properly when displayed.
 
-- List cluster point counts, distance ranges, and bounding-box dimensions; select
-  a cluster explicitly. Start with a nearby surface spanning multiple scan lines.
-- Remove nonfinite XYZ and exact duplicates, apply an optional region/range crop,
-  then voxel-downsample. Select the cluster before downsampling to preserve labels.
-- Keep the original selected points and downsampled points for comparison.
-  Leave statistical outlier removal disabled initially.
-- Report insufficient data clearly: the upstream segmenter permits three-point
-  clusters, which need not support a useful surface reconstruction.
+The edge-cutoff default is undecided: it removes false bridges across the bus windows but also real surface on the sparse truck cab.
 
-### 2.2 Estimate and inspect normals
+Remaining: save the mesh with its frame, cluster id and settings, and report
+median/p95 distance from the original points to the mesh.
 
-- Use Open3D `estimate_normals` with a radius and neighbor cap. PCA is part of
-  normal estimation, not a separate subsequent stage.
-- Orient normals toward the sensor origin for these single-view sweeps.
-- Visualize a subset of normals before meshing. Neighborhoods must span surface
-  patches, not just one scan line. If needed, inspect PCA eigenvalues for line-like
-  neighborhoods; the existing mean flatness metric alone cannot distinguish them.
-
-### 2.3 Reconstruct and clean
-
-- Use Open3D ball pivoting with an explicit list of radii as the first baseline.
-- Remove duplicate/degenerate triangles and unused vertices; compute mesh normals
-  for shading. Report empty meshes rather than treating them as successful output.
-- Offer an optional maximum-edge cutoff and report removed triangles. Leave
-  smoothing and hole filling disabled initially. Poisson is a later comparison.
-
-### 2.4 Compare and record
-
-- Toggle original points, downsampled points, normals, mesh, and wireframe overlay
-  while retaining the camera. Command-line parameter changes are sufficient.
-- Save the mesh, exact parameters, input-frame/cluster identity, and a short report:
-  stage timings, point/triangle counts, edge-length statistics, and median/p95
-  distances from original selected points to the mesh.
-- Optionally sample mesh-to-point distances to flag unsupported patches. Treat
-  this as a diagnostic: sparse scan lines naturally leave gaps between samples.
-- Evaluate a dense nearby surface, a corner/curved object, and a sparse distant
-  cluster. Use existing synthetic geometry for known-surface error checks.
-
-**Done when:** repeated runs on a saved cluster expose how parameters affect
-surface coverage, normals, and triangles bridging empty space. Visual agreement
-and useful coverage matter alongside distance error; input vertices alone are
-an overly favorable evaluation set for ball pivoting.
-
-## Initial tuning controls
-
-| Control | Experimental starting point |
-| --- | --- |
-| Voxel size | 5–10 cm for a nearby cluster |
-| Normal radius | Roughly 3–5 voxel widths; inspect whether it spans scan lines |
-| Maximum neighbors | Around 50; check that the cap still allows surface support |
-| Ball radii | Several values around observed spacing across scan lines |
-| Maximum edge length | Optional; set from the largest gap acceptable to bridge |
-
-These are tuning seeds, not sensor-wide defaults. Nearest-neighbor spacing often
-reflects spacing along a ring. Downsampling reduces redundancy but cannot supply
-missing observations between rings or behind objects.
+Known limits: a single sweep from a static sensor leaves gaps between beams, has no returns from glass, and does not see the far side of objects. Cleanup cannot fill these; a moving sensor with fused scans (e.g. TSDF fusion) can.
 
 ## Implementation layout and order
 
 - `mesh_vis/frame.py`: frame representation and snapshot save/load.
 - `mesh_vis/zenoh_source.py`: adapted subscriber, decoder, and session lifecycle.
-- `mesh_vis/reconstruct.py` (planned): pure offline pipeline and parameters.
+- `mesh_vis/reconstruct.py`: pure offline pipeline and parameters.
 - Extend `mesh_vis/view.py` for inspection; add pipeline metrics when reconstruction starts.
-- `mesh_vis/__main__.py`: `capture` and `inspect` commands; add reconstruction later.
+- `mesh_vis/__main__.py`: `capture`, `inspect`, and `mesh` commands.
 - `tests/`: active pipeline tests; `experiments/legacy/`: preserved playground and its tests.
 
 Implement in this order: adapt decoder and snapshot round-trip → capture viewer

@@ -2,12 +2,12 @@
 
 Segmented LiDAR point clouds to mesh visualization. The current application
 captures RoboSense frames over Zenoh and reopens lossless snapshots in Open3D.
-Offline mesh reconstruction is the next stage; it is not implemented yet.
+The `mesh` command reconstructs one cluster of a saved frame as a triangle mesh.
 
 ## Organization
 
 ```text
-mesh_vis/               active application: frame, zenoh_source, view, CLI
+mesh_vis/               active application: frame, zenoh_source, view, reconstruct, CLI
 tests/                  active application tests
 docs/v1overview.md      pipeline plan and completion criteria
 captures/               generated NPZ snapshots (gitignored)
@@ -89,6 +89,19 @@ point/cluster counts, and configured assumptions. `--no-show` prints these witho
 creating a window. Both earlier version-1 and new version-2 snapshots are readable.
 The window opens centred on the sensor, showing 8 m above and below it; change this
 with `--view-range M`, or use `--view-range 0` to fit the whole frame.
+
+## Mesh a cluster
+
+```bash
+python3 -m mesh_vis mesh frames/frame_1483235723_999802351_seq000139.npz --cluster 20 --show mesh
+```
+
+`--show` opens one view: `before` (cluster points), `after` (downsampled), `normals`, or
+`mesh` (W toggles wireframe). Without it, the command prints counts and settings only.
+
+Settings default to multiples of the cluster's point spacing; override them with
+`--voxel`, `--normal-radius`, `--max-nn`, `--radii`, `--max-edge`, `--min-piece`, and
+`--smooth` (0 turns a step off). The steps are listed in [the v1 plan](docs/v1overview.md).
 
 ## Sensor assumptions and count diagnostics
 
