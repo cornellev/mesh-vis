@@ -2,9 +2,11 @@
 
 from collections import deque
 from types import SimpleNamespace
+import math
 import unittest
 
 import numpy as np
+import open3d as o3d
 
 from mesh_vis import view
 
@@ -30,6 +32,52 @@ class TestClusterColors(unittest.TestCase):
         self.assertEqual(colors.shape, (4, 3))
         self.assertTrue(np.all((colors >= 0) & (colors <= 1)))
         self.assertEqual(view.cluster_colors(np.zeros(0, dtype=np.int32)).shape, (0, 3))
+
+
+class TestScrollZoom(unittest.TestCase):
+    """The wheel keeps Open3D's step until 0.02, then continues inward."""
+
+    def test_wheel_notch_matches_open3d_above_the_floor(self):
+        zoom = view._ScrollZoom(extent=4.0)
+        zoom.scroll(-1.0)
+        self.assertAlmostEqual(zoom.zoom, 0.68)
+        zoom.scroll(1.0)
+        self.assertAlmostEqual(zoom.zoom, 0.7)
+        for _ in range(200):
+            zoom.scroll(1.0)
+        self.assertAlmostEqual(zoom.zoom, view._OPEN3D_ZOOM_MAX)
+
+    def test_zoom_in_continues_past_the_floor_and_returns(self):
+        zoom = view._ScrollZoom(extent=4.0)
+        for _ in range(40):
+            zoom.scroll(-1.0)
+        self.assertLess(zoom.zoom, view._OPEN3D_ZOOM_MIN)
+        deep = zoom.zoom
+        zoom.scroll(-1.0)
+        self.assertLess(zoom.zoom, deep)
+        self.assertGreater(zoom.zoom, 0.0)
+        zoom.scroll(1.0)
+        self.assertAlmostEqual(zoom.zoom, deep)
+        for _ in range(40):
+            zoom.scroll(1.0)
+        self.assertAlmostEqual(zoom.zoom, view._OPEN3D_ZOOM_DEFAULT)
+
+    def test_lookat_stays_between_the_clip_planes(self):
+        zoom = view._ScrollZoom(extent=4.0)
+        for _ in range(60):
+            near, far = zoom.clip(60.0)
+            distance = zoom.zoom * zoom.extent / math.tan(math.radians(30.0))
+            self.assertLess(near, distance)
+            self.assertGreater(far, distance)
+            zoom.scroll(-1.0)
+        near, far = zoom.clip(60.0)
+        self.assertLess(near, 0.01 * zoom.extent)
+
+    def test_scene_extent_includes_normal_lines(self):
+        cloud = o3d.geometry.PointCloud(o3d.utility.Vector3dVector(np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]])))
+        cloud.normals = o3d.utility.Vector3dVector(np.array([[0.0, 0.0, 1.0], [0.0, 0.0, 1.0]]))
+        self.assertAlmostEqual(view._scene_extent(cloud, 0.0), 1.0)
+        self.assertAlmostEqual(view._scene_extent(cloud, 2.0), 2.0)
 
 
 class TestSaveSelection(unittest.TestCase):

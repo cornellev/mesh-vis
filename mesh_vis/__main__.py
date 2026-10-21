@@ -89,6 +89,44 @@ def run_offline(args) -> None:
         viewer.close()
 
 
+def run_mesh(args) -> None:
+    from mesh_vis import reconstruct
+
+    snapshot = frame.load_npz(args.path)
+    prepared = reconstruct.prepare_cluster(snapshot, args.cluster, args.voxel)
+    radius = reconstruct.estimate_normals(prepared.downsampled, args.normal_radius, args.max_nn,
+                                          snapshot.sensor_origin)
+    print(f"{args.path} cluster {args.cluster}\n"
+          f"  {len(prepared.points.points)} points, {prepared.duplicates} duplicates removed, "
+          f"spacing {prepared.spacing * 100:.2f} cm\n"
+          f"  voxel {prepared.voxel_size * 100:.2f} cm -> {len(prepared.downsampled.points)} points\n"
+          f"  normals: radius {radius * 100:.2f} cm, max {args.max_nn} neighbours")
+    mesh, radii = reconstruct.ball_pivot(prepared.downsampled, args.radii)
+    print(f"  ball pivoting: radii {', '.join(f'{r * 100:.2f}' for r in radii)} cm -> "
+          f"{len(mesh.triangles)} triangles, {len(mesh.vertices)} vertices")
+    if len(mesh.triangles) == 0:
+        print("  no triangles: the balls could not span these points; try larger --radii")
+    else:
+        cleaned = reconstruct.clean_mesh(mesh, reconstruct.median_spacing(prepared.downsampled),
+                                         args.max_edge, args.min_piece, args.smooth)
+        mesh = cleaned.mesh
+        print(f"  cleanup: max edge {cleaned.max_edge * 100:.2f} cm removed {cleaned.long_removed} triangles, "
+              f"{cleaned.pieces_removed} pieces under {args.min_piece} triangles removed "
+              f"({cleaned.small_removed} triangles), {args.smooth} smoothing iterations -> "
+              f"{len(mesh.triangles)} triangles")
+        if len(mesh.triangles) == 0:
+            print("  no triangles left after cleanup; loosen --max-edge or --min-piece")
+    if args.show:
+        from mesh_vis import view
+
+        if args.show == "mesh" and len(mesh.triangles) == 0:
+            return
+        shown = prepared.points if args.show == "before" else prepared.downsampled
+        view.show_points(shown, f"{args.show}: cluster {args.cluster}, {len(shown.points)} points",
+                         normal_length=radius / 2 if args.show == "normals" else 0.0,
+                         mesh=mesh if args.show == "mesh" else None)
+
+
 def nonnegative_int(value: str) -> int:
     number = int(value)
     if number < 0:
@@ -116,6 +154,26 @@ def build_parser() -> argparse.ArgumentParser:
     inspect.add_argument("path", help="saved .npz snapshot")
     inspect.add_argument("--no-show", action="store_true", help="print metadata/counts without a window")
     inspect.set_defaults(run=run_offline)
+    mesh = commands.add_parser("mesh", help="reconstruct one cluster of an NPZ snapshot")
+    mesh.add_argument("path", help="saved .npz snapshot")
+    mesh.add_argument("--cluster", type=int, required=True, help="cluster id in that frame")
+    mesh.add_argument("--voxel", type=nonnegative_float, default=None,
+                      help="voxel size in metres (default: 3x the cluster's point spacing); 0 skips downsampling")
+    mesh.add_argument("--normal-radius", type=nonnegative_float, default=None,
+                      help="normal search radius in metres (default: 6x the downsampled spacing)")
+    mesh.add_argument("--max-nn", type=nonnegative_int, default=50,
+                      help="most neighbours used per normal (default: 50)")
+    mesh.add_argument("--radii", type=nonnegative_float, nargs="+", default=None,
+                      help="ball-pivoting radii in metres (default: 1.5x, 3x, 6x the downsampled spacing)")
+    mesh.add_argument("--max-edge", type=nonnegative_float, default=None,
+                      help="remove triangles with a longer edge, metres (default: 6x the downsampled spacing); 0 keeps all")
+    mesh.add_argument("--min-piece", type=nonnegative_int, default=10,
+                      help="remove separate mesh pieces with fewer triangles (default: 10); 0 keeps all")
+    mesh.add_argument("--smooth", type=nonnegative_int, default=10,
+                      help="Taubin smoothing iterations (default: 10); 0 turns smoothing off")
+    mesh.add_argument("--show", choices=("before", "after", "normals", "mesh"),
+                      help="open a window with the cluster before or after downsampling, with normals, or the mesh")
+    mesh.set_defaults(run=run_mesh)
     for command in (capture, inspect):
         command.add_argument("--expected-records", "--full-records", dest="expected_records",
                              type=nonnegative_int, default=frame.DEFAULT_EXPECTED_RECORDS,
